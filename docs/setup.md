@@ -1,0 +1,139 @@
+# セットアップ手順書
+
+この順番で進めてください。それぞれ完了したら次に進みます。
+
+- [ ] STEP 0: 全体の流れを理解する
+- [ ] STEP 1: GitHubリポジトリを作る
+- [ ] STEP 2: Googleスプレッドシートを作る
+- [ ] STEP 3: Google Cloud サービスアカウントを作る(スプレッドシート連携用)
+- [ ] STEP 4: Instagram Graph APIを設定する(Facebookアプリ・アクセストークン)
+- [ ] STEP 5: Claude APIキーを取得する
+- [ ] STEP 6: GitHub Secretsに登録する
+- [ ] STEP 7: テストモードで動作確認する
+- [ ] STEP 8: 本番モードに切り替える
+
+---
+
+## STEP 1: GitHubリポジトリを作る
+
+1. https://github.com/new を開く
+2. リポジトリ名を決める(例: `instagram-auto-post`)
+3. **Public(公開)** を選ぶ
+   - 理由: Instagram Graph APIが画像を取得するとき、`raw.githubusercontent.com` 経由の
+     公開URLでアクセスする必要があるためです。APIキーやトークンはコードに書かず、
+     すべてGitHub Secrets(暗号化されて非公開)で管理するので、公開リポジトリでも
+     秘密情報が漏れることはありません。
+4. 「Create repository」を押す
+5. このフォルダの中身をpushする(私からコマンドを提示するので、実行してよいか確認してから進めます)
+
+## STEP 2: Googleスプレッドシートを作る
+
+1. https://sheets.google.com で新しいスプレッドシートを作成
+2. シート(タブ)名を `投稿管理` にする(または好きな名前にして、あとでSecretsの
+   `SHEET_NAME` に登録)
+3. 1行目に、[README.md](../README.md) の「スプレッドシートの列構成」の表にある
+   列名をそのまま入力する:
+   `投稿日時 / 画像ファイル名 / 商品名 / 使用石 / BASE商品URL / 投稿済みフラグ / 投稿日時(実績) / 結果メモ`
+4. 2行目からテスト用のデータを1〜2件入れてみる(投稿日時は過去の日時にすると、
+   テスト実行時にすぐ「未処理」として検出されます)
+5. URLの `https://docs.google.com/spreadsheets/d/【この部分】/edit` の
+   【この部分】が スプレッドシートID です。あとで使うのでメモしておいてください。
+
+## STEP 3: Google Cloud サービスアカウントを作る
+
+1. https://console.cloud.google.com にアクセスし、新しいプロジェクトを作成(名前は任意)
+2. 左メニュー「APIとサービス」→「ライブラリ」から
+   **Google Sheets API** を検索して「有効にする」
+3. 「APIとサービス」→「認証情報」→「認証情報を作成」→「サービスアカウント」
+4. 名前を適当につけて作成(ロールの割り当てはスキップしてOK)
+5. 作成したサービスアカウントの詳細画面 →「キー」タブ →「鍵を追加」→
+   「新しい鍵を作成」→ JSON を選択 → ダウンロードされる
+   このJSONファイルの中身をあとでSecretsに登録します。**他人に渡さないでください。**
+6. JSONファイルの中の `client_email`(例: `xxx@xxx.iam.gserviceaccount.com`)をコピー
+7. STEP 2で作ったスプレッドシートを開き、右上の「共有」から、その `client_email` を
+   **編集者** 権限で共有する(これをしないとスクリプトから読み書きできません)
+
+## STEP 4: Instagram Graph APIを設定する
+
+これが一番手順が多いパートです。前提として、InstagramアカウントがInstagram
+「ビジネスアカウント」または「クリエイターアカウント」になっていて、
+Facebookページと連携している必要があります。
+
+1. Instagramアプリ側の設定 →「アカウントの種類とツール」で
+   ビジネス/クリエイターアカウントになっているか確認(なっていなければ切り替える)
+2. https://www.facebook.com でFacebookページを作成(まだなければ)し、
+   InstagramアカウントをそのページにInstagram側の設定から連携する
+3. https://developers.facebook.com/apps にアクセスし「アプリを作成」
+   - アプリタイプは「ビジネス」を選択
+4. 作成したアプリのダッシュボードで「製品を追加」→ **Instagram** を追加
+5. 左メニューの「Instagram」→「APIセットアップ」などの案内に従い、
+   連携したFacebookページ・Instagramアカウントを選択する
+6. アクセストークンを取得する
+   - 開発中は「Graph API Explorer」(https://developers.facebook.com/tools/explorer/)
+     で自分のアプリを選び、権限に `instagram_basic` `instagram_content_publish`
+     `pages_show_list` `pages_read_engagement` を追加してトークンを生成できます
+   - このままだと有効期限が短い(1〜2時間)ので、**長期(60日)アクセストークン**に交換します。
+     以下のURLの `{app-id}` `{app-secret}` `{short-lived-token}` を置き換えてブラウザでアクセス:
+     ```
+     https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id={app-id}&client_secret={app-secret}&fb_exchange_token={short-lived-token}
+     ```
+   - 60日ごとに再取得が必要です(自動更新はこの仕組みには含めていません。期限が近くなったら
+     同じ手順で再取得し、Secretsを更新してください)
+7. Instagram Business Account ID (`IG_USER_ID`) を確認する
+   - Graph API Explorerで `GET /me/accounts` → 出てきたページIDで
+     `GET /{page-id}?fields=instagram_business_account` を実行すると
+     `instagram_business_account.id` が取得できます。これが `IG_USER_ID` です
+
+## STEP 5: Claude APIキーを取得する
+
+1. https://console.anthropic.com にアクセスしてサインアップ/ログイン
+2. 「API Keys」から新しいキーを作成
+3. 表示されたキー(`sk-ant-...`)をコピーしておく(再表示できないので必ず保存)
+
+## STEP 6: GitHub Secretsに登録する
+
+作成したリポジトリの GitHub ページ →「Settings」→「Secrets and variables」→
+「Actions」→「New repository secret」で、以下をひとつずつ登録します。
+
+| Secret名 | 値 |
+|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | STEP 3でダウンロードしたJSONファイルの中身をそのまま貼り付け |
+| `SPREADSHEET_ID` | STEP 2でメモしたスプレッドシートID |
+| `SHEET_NAME` | シート(タブ)名。省略した場合は `投稿管理` |
+| `ANTHROPIC_API_KEY` | STEP 5で取得したキー |
+| `IG_USER_ID` | STEP 4で取得したInstagramビジネスアカウントID |
+| `IG_ACCESS_TOKEN` | STEP 4で取得した長期アクセストークン |
+
+「Secrets and variables」→「Actions」→「Variables」タブでは以下を登録します
+(こちらは非公開ではないので、投稿の公開/非公開切り替えフラグのみ入れます)。
+
+| Variable名 | 値 |
+|---|---|
+| `TEST_MODE` | 最初は `true`。本番投稿を始めるときに `false` に変更する |
+
+## STEP 7: テストモードで動作確認する
+
+1. `posts/` フォルダにテスト用画像を1枚追加してpush
+2. スプレッドシートに、その画像ファイル名を使った行を1つ追加(投稿日時は過去にする)
+3. GitHubリポジトリの「Actions」タブ →「Instagram Auto Post」→
+   「Run workflow」→ `test_mode` を `true` のまま実行
+4. 実行ログと、スプレッドシートの「結果メモ」列に生成されたキャプションが
+   表示されることを確認する(Instagramには投稿されません)
+5. 文体やハッシュタグの雰囲気を見て、必要なら
+   [scripts/caption_generator.py](../scripts/caption_generator.py) の
+   `SYSTEM_PROMPT` を調整する
+
+## STEP 8: 本番モードに切り替える
+
+1. テスト結果に問題がなければ、リポジトリの Variables で `TEST_MODE` を `false` に変更
+2. スプレッドシートのテスト行を削除するか、投稿済みフラグを手動で埋めて無視する
+3. 本番用の行を登録していく
+4. 以降は1日3回、GitHub Actionsが自動でチェック・投稿します
+   (手動で今すぐ試したいときは「Run workflow」→ `test_mode` を `false` で実行)
+
+### 運用メモ
+
+- 投稿に失敗した行は「投稿済みフラグ」が `エラー` になり、自動では再試行されません。
+  「結果メモ」列で原因を確認し、直せたらフラグを空欄に戻すと次回実行時に再処理されます。
+- アクセストークンは60日で切れます。切れるとエラーになるので、期限前にSTEP 4-6を
+  再取得してSecretsを更新してください。

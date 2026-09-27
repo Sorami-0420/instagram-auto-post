@@ -1,0 +1,46 @@
+name: Instagram Auto Post
+
+on:
+  schedule:
+    - cron: "0 1 * * *"  # 毎日 10:00 JST
+    - cron: "0 4 * * *"  # 毎日 13:00 JST
+    - cron: "0 9 * * *"  # 毎日 18:00 JST
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: "true=投稿せずキャプション確認のみ / false=実際に投稿する"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run posting script
+        working-directory: scripts
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          # 定期実行(schedule)ではリポジトリ変数 TEST_MODE を使う。
+          # 手動実行(workflow_dispatch)のときはその場で選んだ値を優先する。
+          TEST_MODE: ${{ github.event.inputs.test_mode || vars.TEST_MODE || 'true' }}
+        run: python main.py
