@@ -106,7 +106,7 @@ def generate_caption(
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     response = client.messages.create(
         model=model,
-        max_tokens=600,
+        max_tokens=1500,
         system=SYSTEM_PROMPT,
         messages=[
             {
@@ -125,6 +125,11 @@ def generate_caption(
             }
         ],
     )
-    return "".join(
+    caption = "".join(
         block.text for block in response.content if block.type == "text"
     ).strip()
+    if not caption:
+        raise ValueError(
+            f"生成されたキャプションが空でした(stop_reason={response.stop_reason})"
+        )
+    return caption
