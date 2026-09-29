@@ -54,6 +54,7 @@ def run() -> int:
                 claude,
                 product_name=row.product_name,
                 stone=row.stone,
+                inclusion=row.inclusion,
                 base_url=row.base_url,
             )
         except Exception as exc:  # noqa: BLE001 - どんな失敗でも行にエラーを記録して継続する

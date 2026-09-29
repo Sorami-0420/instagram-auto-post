@@ -13,6 +13,7 @@ COL_SCHEDULED_AT = "投稿日時"
 COL_IMAGE_FILENAME = "画像ファイル名"
 COL_PRODUCT_NAME = "商品名"
 COL_STONE = "使用石"
+COL_INCLUSION = "内包物"
 COL_BASE_URL = "BASE商品URL"
 COL_STATUS = "投稿済みフラグ"
 COL_RESULT_AT = "投稿日時(実績)"
@@ -23,6 +24,7 @@ REQUIRED_COLUMNS = [
     COL_IMAGE_FILENAME,
     COL_PRODUCT_NAME,
     COL_STONE,
+    COL_INCLUSION,
     COL_BASE_URL,
     COL_STATUS,
     COL_RESULT_AT,
@@ -37,6 +39,7 @@ class PostRow:
     image_filename: str
     product_name: str
     stone: str
+    inclusion: str  # 内包物の鉱物名(わからない場合は空欄)
     base_url: str
     status: str
 
@@ -83,6 +86,7 @@ class SheetsClient:
                     image_filename=image_filename,
                     product_name=get(COL_PRODUCT_NAME),
                     stone=get(COL_STONE),
+                    inclusion=get(COL_INCLUSION),
                     base_url=get(COL_BASE_URL),
                     status=status,
                 )
