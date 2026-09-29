@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 import anthropic
 
 SYSTEM_PROMPT = """\
@@ -10,7 +12,13 @@ Instagramのフィード投稿用キャプションを書いてください。
 - やさしく、丁寧で、温かみのある言葉づかい
 - 一人称は「わたし」
 - 押しつけがましい宣伝口調にしない
-- 絵文字は控えめに(0〜3個程度)。太陽・月・星・きらきら系を中心に使う
+- 添付された商品写真を実際によく見て、その写真の雰囲気(色味・光の感じ・構図など)や
+  商品名に合った情景描写にすること。写真と関係のない季節感や情景を書かない
+
+# 絵文字・顔文字のルール
+- 絵文字は次の4種類を中心に積極的に使う(1投稿につき合計3〜6個程度): 🧚 🌙 ✨ ☀️
+- 顔文字も使ってよい。使う場合は次から選ぶ: (^^) / ･:*+.\\(( °ω° ))/.:+ / ✳︎
+- 絵文字・顔文字は「太陽と月」の世界観に合う箇所(情景描写の後や文末)に置く
 
 # 厳守事項(絶対に守ること)
 - 天然石の効果・効能を断定的に表現しない
@@ -25,7 +33,7 @@ Instagramのフィード投稿用キャプションを書いてください。
   - 「きらきらと輝く粒子」のような、実在しない・不確かな描写を鉱物名の代わりに使わない
 
 # 構成(この順番で書く)
-1. 作品や石にまつわる短い情景・気持ちの導入(1〜3文)
+1. 添付された写真と商品名に合わせた、短い情景・気持ちの導入(1〜3文)
 2. 商品名と使用石の紹介
 3. 石にまつわる言い伝え・象徴の軽い紹介(必ず「〜と言われています」等の伝聞表現にする)
 4. 「プロフィールのリンクから詳細をご覧いただけます」という趣旨の一文
@@ -33,6 +41,21 @@ Instagramのフィード投稿用キャプションを書いてください。
 
 出力はキャプション本文のみとし、説明や前置き、Markdown記法は書かないでください。
 """
+
+EXTENSION_TO_MEDIA_TYPE = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def guess_media_type(filename: str) -> str:
+    for ext, media_type in EXTENSION_TO_MEDIA_TYPE.items():
+        if filename.lower().endswith(ext):
+            return media_type
+    raise ValueError(f"対応していない画像形式です: {filename}")
 
 
 def generate_caption(
@@ -42,6 +65,8 @@ def generate_caption(
     stone: str,
     inclusion: str = "",
     base_url: str,
+    image_bytes: bytes,
+    image_filename: str,
     model: str = "claude-sonnet-5",
 ) -> str:
     inclusion_line = f"内包物: {inclusion}" if inclusion else "内包物: (不明・指定なし。鉱物名を創作しないこと)"
@@ -50,13 +75,29 @@ def generate_caption(
         f"使用石: {stone}\n"
         f"{inclusion_line}\n"
         f"商品ページ(本文には貼らない・参考情報): {base_url}\n\n"
-        "上記の商品についてのInstagramフィード投稿キャプションを作成してください。"
+        "添付した商品写真をよく見た上で、上記の商品についてのInstagramフィード投稿キャプションを作成してください。"
     )
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     response = client.messages.create(
         model=model,
         max_tokens=600,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": guess_media_type(image_filename),
+                            "data": image_b64,
+                        },
+                    },
+                    {"type": "text", "text": user_prompt},
+                ],
+            }
+        ],
     )
     return "".join(
         block.text for block in response.content if block.type == "text"

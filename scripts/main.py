@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import anthropic
@@ -13,6 +14,7 @@ from instagram_client import InstagramPostError, publish_feed_post
 from sheets_client import PostRow, SheetsClient
 
 JST = ZoneInfo("Asia/Tokyo")
+POSTS_DIR = Path(__file__).resolve().parent.parent / "posts"
 
 
 def now_jst() -> datetime:
@@ -49,6 +51,15 @@ def run() -> int:
     for row in due_rows:
         checked_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
+        image_path = POSTS_DIR / row.image_filename
+        try:
+            image_bytes = image_path.read_bytes()
+        except OSError as exc:
+            print(f"[行{row.row_number}] 画像読み込みエラー: {exc}", file=sys.stderr)
+            sheets.mark_error(row, f"画像読み込みエラー: {exc}", checked_at)
+            exit_code = 1
+            continue
+
         try:
             caption = generate_caption(
                 claude,
@@ -56,6 +67,8 @@ def run() -> int:
                 stone=row.stone,
                 inclusion=row.inclusion,
                 base_url=row.base_url,
+                image_bytes=image_bytes,
+                image_filename=row.image_filename,
             )
         except Exception as exc:  # noqa: BLE001 - どんな失敗でも行にエラーを記録して継続する
             print(f"[行{row.row_number}] キャプション生成エラー: {exc}", file=sys.stderr)
