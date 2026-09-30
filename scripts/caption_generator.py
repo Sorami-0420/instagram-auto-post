@@ -132,7 +132,7 @@ def generate_caption(
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     response = client.messages.create(
         model=model,
-        max_tokens=3000,
+        max_tokens=8000,
         system=SYSTEM_PROMPT,
         tools=[
             {
