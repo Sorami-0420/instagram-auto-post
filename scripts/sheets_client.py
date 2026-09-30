@@ -64,6 +64,16 @@ class SheetsClient:
             )
         return {name: self._header.index(name) + 1 for name in REQUIRED_COLUMNS}
 
+    def list_all_scheduled_at(self) -> list[str]:
+        """ストーリー投稿との同日判定に使う、全行(投稿済み・エラー含む)の投稿日時の一覧。"""
+        all_values = self._worksheet.get_all_values()
+        idx = self._col_index[COL_SCHEDULED_AT] - 1
+        return [
+            values[idx].strip()
+            for values in all_values[1:]
+            if idx < len(values) and values[idx].strip()
+        ]
+
     def load_pending_rows(self) -> list[PostRow]:
         """投稿済みフラグが空欄の行だけを未処理として取得する。"""
         all_values = self._worksheet.get_all_values()

@@ -52,6 +52,27 @@ def _create_media_container(
     return data["id"]
 
 
+def publish_story_video(*, ig_user_id: str, access_token: str, video_url: str) -> str:
+    """動画URLからストーリーズを作成し、公開する。戻り値は投稿(media)のID。"""
+    creation_id = _create_story_video_container(ig_user_id, access_token, video_url)
+    _wait_until_ready(creation_id, access_token, timeout_seconds=180)
+    return _publish_container(ig_user_id, access_token, creation_id)
+
+
+def _create_story_video_container(ig_user_id: str, access_token: str, video_url: str) -> str:
+    resp = requests.post(
+        f"{GRAPH_API_BASE}/{ig_user_id}/media",
+        data={
+            "media_type": "STORIES",
+            "video_url": video_url,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    data = _parse_response(resp)
+    return data["id"]
+
+
 def _wait_until_ready(creation_id: str, access_token: str, timeout_seconds: int = 60) -> None:
     """画像URLの取得・エンコードが完了するまで待つ(Instagram側の非同期処理)。"""
     deadline = time.time() + timeout_seconds

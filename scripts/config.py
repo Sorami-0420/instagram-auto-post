@@ -20,10 +20,12 @@ class Config:
     google_service_account_json: str
     spreadsheet_id: str
     sheet_name: str
+    story_sheet_name: str
     anthropic_api_key: str
     ig_user_id: str
     ig_access_token: str
     image_base_url: str
+    video_base_url: str
     test_mode: bool
 
     @classmethod
@@ -44,6 +46,19 @@ class Config:
                 "GitHub Actions上で実行してください。"
             )
 
+        video_base_url = os.environ.get("VIDEO_BASE_URL", "").rstrip("/")
+        if not video_base_url:
+            repo = os.environ.get("GITHUB_REPOSITORY")
+            branch = os.environ.get("IMAGE_BRANCH", "main")
+            if repo:
+                video_base_url = f"https://raw.githubusercontent.com/{repo}/{branch}/stories"
+
+        if not video_base_url:
+            raise ConfigError(
+                "動画の公開URLを決定できません。VIDEO_BASE_URL を設定するか、"
+                "GitHub Actions上で実行してください。"
+            )
+
         # テストモードではInstagramに投稿しないため、IG関連の認証情報は必須にしない
         ig_user_id = os.environ.get("IG_USER_ID", "")
         ig_access_token = os.environ.get("IG_ACCESS_TOKEN", "")
@@ -55,9 +70,11 @@ class Config:
             google_service_account_json=_require("GOOGLE_SERVICE_ACCOUNT_JSON"),
             spreadsheet_id=_require("SPREADSHEET_ID"),
             sheet_name=os.environ.get("SHEET_NAME", "投稿管理"),
+            story_sheet_name=os.environ.get("STORY_SHEET_NAME", "ストーリー管理"),
             anthropic_api_key=_require("ANTHROPIC_API_KEY"),
             ig_user_id=ig_user_id,
             ig_access_token=ig_access_token,
             image_base_url=image_base_url,
+            video_base_url=video_base_url,
             test_mode=test_mode,
         )
