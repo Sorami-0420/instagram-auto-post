@@ -9,7 +9,9 @@ from google.oauth2.service_account import Credentials
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # スプレッドシートの1行目(ヘッダー)に必要な列名
-COL_SCHEDULED_AT = "投稿日時"
+COL_SCHEDULED_AT = "投稿日時"  # 旧形式(互換用)。新形式は投稿日+投稿時刻
+COL_SCHEDULED_DATE = "投稿日"
+COL_SCHEDULED_TIME = "投稿時刻"
 COL_IMAGE_FILENAME = "画像ファイル名"
 COL_PRODUCT_NAME = "商品名"
 COL_STONE = "使用石"
@@ -22,6 +24,8 @@ COL_NOTE = "結果メモ"
 
 REQUIRED_COLUMNS = [
     COL_SCHEDULED_AT,
+    COL_SCHEDULED_DATE,
+    COL_SCHEDULED_TIME,
     COL_IMAGE_FILENAME,
     COL_PRODUCT_NAME,
     COL_STONE,
@@ -64,15 +68,28 @@ class SheetsClient:
             )
         return {name: self._header.index(name) + 1 for name in REQUIRED_COLUMNS}
 
+    @staticmethod
+    def _combine_scheduled_at(get) -> str:
+        """投稿日+投稿時刻(新形式)があればそちらを優先し、なければ投稿日時(旧形式)を使う。"""
+        date_val = get(COL_SCHEDULED_DATE)
+        if date_val:
+            return f"{date_val} {get(COL_SCHEDULED_TIME)}".strip()
+        return get(COL_SCHEDULED_AT)
+
     def list_all_scheduled_at(self) -> list[str]:
         """ストーリー投稿との同日判定に使う、全行(投稿済み・エラー含む)の投稿日時の一覧。"""
         all_values = self._worksheet.get_all_values()
-        idx = self._col_index[COL_SCHEDULED_AT] - 1
-        return [
-            values[idx].strip()
-            for values in all_values[1:]
-            if idx < len(values) and values[idx].strip()
-        ]
+        result: list[str] = []
+        for values in all_values[1:]:
+
+            def get(col: str) -> str:
+                idx = self._col_index[col] - 1
+                return values[idx].strip() if idx < len(values) else ""
+
+            scheduled_at = self._combine_scheduled_at(get)
+            if scheduled_at:
+                result.append(scheduled_at)
+        return result
 
     def load_pending_rows(self) -> list[PostRow]:
         """投稿済みフラグが空欄の行だけを未処理として取得する。"""
@@ -95,7 +112,7 @@ class SheetsClient:
             rows.append(
                 PostRow(
                     row_number=i,
-                    scheduled_at=get(COL_SCHEDULED_AT),
+                    scheduled_at=self._combine_scheduled_at(get),
                     image_filename=image_filename,
                     product_name=get(COL_PRODUCT_NAME),
                     stone=get(COL_STONE),

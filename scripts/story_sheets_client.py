@@ -8,7 +8,9 @@ from google.oauth2.service_account import Credentials
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-COL_SCHEDULED_AT = "投稿日時"
+COL_SCHEDULED_AT = "投稿日時"  # 旧形式(互換用)。新形式は投稿日+投稿時刻
+COL_SCHEDULED_DATE = "投稿日"
+COL_SCHEDULED_TIME = "投稿時刻"
 COL_VIDEO_FILENAME = "動画ファイル名"
 COL_STATUS = "投稿済みフラグ"
 COL_RESULT_AT = "投稿日時(実績)"
@@ -16,6 +18,8 @@ COL_NOTE = "結果メモ"
 
 REQUIRED_COLUMNS = [
     COL_SCHEDULED_AT,
+    COL_SCHEDULED_DATE,
+    COL_SCHEDULED_TIME,
     COL_VIDEO_FILENAME,
     COL_STATUS,
     COL_RESULT_AT,
@@ -48,6 +52,14 @@ class StorySheetsClient:
             )
         return {name: self._header.index(name) + 1 for name in REQUIRED_COLUMNS}
 
+    @staticmethod
+    def _combine_scheduled_at(get) -> str:
+        """投稿日+投稿時刻(新形式)があればそちらを優先し、なければ投稿日時(旧形式)を使う。"""
+        date_val = get(COL_SCHEDULED_DATE)
+        if date_val:
+            return f"{date_val} {get(COL_SCHEDULED_TIME)}".strip()
+        return get(COL_SCHEDULED_AT)
+
     def load_pending_rows(self) -> list[StoryRow]:
         """投稿済みフラグが空欄の行だけを未処理として取得する。"""
         all_values = self._worksheet.get_all_values()
@@ -69,7 +81,7 @@ class StorySheetsClient:
             rows.append(
                 StoryRow(
                     row_number=i,
-                    scheduled_at=get(COL_SCHEDULED_AT),
+                    scheduled_at=self._combine_scheduled_at(get),
                     video_filename=video_filename,
                     status=status,
                 )
@@ -77,7 +89,7 @@ class StorySheetsClient:
         return rows
 
     def fill_video_filename(self, filename: str) -> str:
-        """投稿日時が入っていて動画ファイル名が空欄の、一番上の行に書き込む。
+        """投稿予定日時が入っていて動画ファイル名が空欄の、一番上の行に書き込む。
 
         戻り値: "filled"(書き込んだ) / "not_found"(該当行なし)
         """
@@ -89,7 +101,7 @@ class StorySheetsClient:
                 idx = self._col_index[col] - 1
                 return values[idx].strip() if idx < len(values) else ""
 
-            if get(COL_SCHEDULED_AT) and not get(COL_VIDEO_FILENAME):
+            if self._combine_scheduled_at(get) and not get(COL_VIDEO_FILENAME):
                 self._update(i, {COL_VIDEO_FILENAME: filename})
                 return "filled"
 
