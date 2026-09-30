@@ -109,6 +109,31 @@ class SheetsClient:
             {COL_STATUS: "エラー", COL_RESULT_AT: checked_at, COL_NOTE: error_message},
         )
 
+    def fill_image_filename(self, product_name: str, filename: str) -> str:
+        """商品名が完全一致し、画像ファイル名が空欄の行に書き込む。
+
+        戻り値: "filled"(書き込んだ) / "not_found"(該当行なし) / "ambiguous"(複数該当)
+        """
+        all_values = self._worksheet.get_all_values()
+        matches: list[int] = []
+
+        for i, values in enumerate(all_values[1:], start=2):
+
+            def get(col: str) -> str:
+                idx = self._col_index[col] - 1
+                return values[idx].strip() if idx < len(values) else ""
+
+            if get(COL_PRODUCT_NAME) == product_name and not get(COL_IMAGE_FILENAME):
+                matches.append(i)
+
+        if not matches:
+            return "not_found"
+        if len(matches) > 1:
+            return "ambiguous"
+
+        self._update(matches[0], {COL_IMAGE_FILENAME: filename})
+        return "filled"
+
     def mark_test_preview(self, row: PostRow, caption: str, checked_at: str) -> None:
         """テストモード:フラグは変更せず、生成キャプションだけメモ欄に残す。"""
         self._update(

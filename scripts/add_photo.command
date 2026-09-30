@@ -8,6 +8,9 @@ SRC_FILE=$(osascript -e 'POSIX path of (choose file with prompt "投稿する写
   exit 0
 }
 
+SRC_BASENAME=$(basename "$SRC_FILE")
+PRODUCT_NAME="${SRC_BASENAME%.*}"
+
 echo "保存するファイル名を入力してください(半角英数字、拡張子込み)"
 NEW_NAME=$(osascript -e 'text returned of (display dialog "保存するファイル名を入力してください(入力欄の文字は一度全部消してから入力してください)\n半角英数字のみ・拡張子込み(例: item1.jpg)" default answer "")') || {
   echo "キャンセルされました。"
@@ -37,5 +40,12 @@ git push origin main
 osascript -e "display notification \"posts/$NEW_NAME として公開しました\" with title \"画像の追加が完了しました\""
 echo ""
 echo "完了しました: $DEST"
+echo ""
+
+echo "スプレッドシートに自動反映を試みます(商品名: $PRODUCT_NAME)..."
+SHEET_RESULT=$(python3 scripts/update_sheet_image.py "$PRODUCT_NAME" "$NEW_NAME" 2>&1) || SHEET_RESULT="スプレッドシートへの自動入力でエラーが発生しました。手動で入力してください。"
+echo "$SHEET_RESULT"
+
+echo ""
 echo "このウィンドウは閉じて大丈夫です。"
 read -p "Enterキーを押すと閉じます..."
