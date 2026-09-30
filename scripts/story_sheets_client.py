@@ -76,6 +76,25 @@ class StorySheetsClient:
             )
         return rows
 
+    def fill_video_filename(self, filename: str) -> str:
+        """投稿日時が入っていて動画ファイル名が空欄の、一番上の行に書き込む。
+
+        戻り値: "filled"(書き込んだ) / "not_found"(該当行なし)
+        """
+        all_values = self._worksheet.get_all_values()
+
+        for i, values in enumerate(all_values[1:], start=2):
+
+            def get(col: str) -> str:
+                idx = self._col_index[col] - 1
+                return values[idx].strip() if idx < len(values) else ""
+
+            if get(COL_SCHEDULED_AT) and not get(COL_VIDEO_FILENAME):
+                self._update(i, {COL_VIDEO_FILENAME: filename})
+                return "filled"
+
+        return "not_found"
+
     def mark_posted(self, row: StoryRow, posted_at: str) -> None:
         self._update(
             row.row_number,

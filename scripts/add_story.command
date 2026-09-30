@@ -37,7 +37,12 @@ git push origin main
 osascript -e "display notification \"stories/$NEW_NAME として公開しました\" with title \"ストーリー動画の追加が完了しました\""
 echo ""
 echo "完了しました: $DEST"
-echo "スプレッドシートの「ストーリー管理」タブに、投稿日時とこのファイル名($NEW_NAME)を入力してください。"
+echo ""
+
+echo "スプレッドシートに自動反映を試みます..."
+SHEET_RESULT=$(python3 scripts/update_story_sheet.py "$NEW_NAME" 2>&1) || SHEET_RESULT="スプレッドシートへの自動入力でエラーが発生しました。手動で入力してください。"
+echo "$SHEET_RESULT"
+
 echo ""
 echo "このウィンドウは閉じて大丈夫です。"
 read -p "Enterキーを押すと閉じます..."
