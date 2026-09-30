@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 
 import gspread
@@ -143,6 +144,7 @@ class SheetsClient:
         """
         all_values = self._worksheet.get_all_values()
         matches: list[int] = []
+        target = unicodedata.normalize("NFC", product_name)
 
         for i, values in enumerate(all_values[1:], start=2):
 
@@ -150,7 +152,8 @@ class SheetsClient:
                 idx = self._col_index[col] - 1
                 return values[idx].strip() if idx < len(values) else ""
 
-            if get(COL_PRODUCT_NAME) == product_name and not get(COL_IMAGE_FILENAME):
+            sheet_name = unicodedata.normalize("NFC", get(COL_PRODUCT_NAME))
+            if sheet_name == target and not get(COL_IMAGE_FILENAME):
                 matches.append(i)
 
         if not matches:
