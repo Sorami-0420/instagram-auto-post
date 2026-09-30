@@ -5,6 +5,7 @@ on:
     - cron: "0 1 * * *"  # 毎日 10:00 JST
     - cron: "0 4 * * *"  # 毎日 13:00 JST
     - cron: "0 9 * * *"  # 毎日 18:00 JST
+    - cron: "0 11 * * *" # 毎日 20:00 JST
   workflow_dispatch:
     inputs:
       test_mode:
