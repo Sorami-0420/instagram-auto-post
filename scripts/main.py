@@ -77,7 +77,8 @@ def run() -> int:
             continue
 
         if config.test_mode:
-            print(f"[行{row.row_number}] (テストモード) 生成キャプション:\n{caption}\n")
+            tag_note = f" / 商品タグ付き(ID: {row.product_tag_id})" if row.product_tag_id else ""
+            print(f"[行{row.row_number}] (テストモード){tag_note} 生成キャプション:\n{caption}\n")
             sheets.mark_test_preview(row, caption, checked_at)
             continue
 
@@ -88,6 +89,7 @@ def run() -> int:
                 access_token=config.ig_access_token,
                 image_url=image_url,
                 caption=caption,
+                product_tag_id=row.product_tag_id,
             )
         except InstagramPostError as exc:
             print(f"[行{row.row_number}] Instagram投稿エラー: {exc}", file=sys.stderr)

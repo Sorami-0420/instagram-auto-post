@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 import requests
@@ -7,22 +8,44 @@ import requests
 GRAPH_API_VERSION = "v21.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
+# タグの表示位置(画像中心の固定位置)
+PRODUCT_TAG_X = 0.5
+PRODUCT_TAG_Y = 0.5
+
 
 class InstagramPostError(RuntimeError):
     """Instagram Graph APIへの投稿に失敗したときのエラー。"""
 
 
-def publish_feed_post(*, ig_user_id: str, access_token: str, image_url: str, caption: str) -> str:
-    """画像URLとキャプションからフィード投稿を作成し、公開する。戻り値は投稿(media)のID。"""
-    creation_id = _create_media_container(ig_user_id, access_token, image_url, caption)
+def publish_feed_post(
+    *,
+    ig_user_id: str,
+    access_token: str,
+    image_url: str,
+    caption: str,
+    product_tag_id: str = "",
+) -> str:
+    """画像URLとキャプションからフィード投稿を作成し、公開する。戻り値は投稿(media)のID。
+
+    product_tag_idを指定すると、その商品(Facebookコマースマネージャーの商品ID)を
+    画像中心にタグ付けする。
+    """
+    creation_id = _create_media_container(ig_user_id, access_token, image_url, caption, product_tag_id)
     _wait_until_ready(creation_id, access_token)
     return _publish_container(ig_user_id, access_token, creation_id)
 
 
-def _create_media_container(ig_user_id: str, access_token: str, image_url: str, caption: str) -> str:
+def _create_media_container(
+    ig_user_id: str, access_token: str, image_url: str, caption: str, product_tag_id: str
+) -> str:
+    payload = {"image_url": image_url, "caption": caption, "access_token": access_token}
+    if product_tag_id:
+        payload["product_tags"] = json.dumps(
+            [{"product_id": product_tag_id, "x": PRODUCT_TAG_X, "y": PRODUCT_TAG_Y}]
+        )
     resp = requests.post(
         f"{GRAPH_API_BASE}/{ig_user_id}/media",
-        data={"image_url": image_url, "caption": caption, "access_token": access_token},
+        data=payload,
         timeout=30,
     )
     data = _parse_response(resp)

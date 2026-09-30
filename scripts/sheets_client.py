@@ -15,6 +15,7 @@ COL_PRODUCT_NAME = "商品名"
 COL_STONE = "使用石"
 COL_INCLUSION = "内包物"
 COL_BASE_URL = "BASE商品URL"
+COL_PRODUCT_TAG_ID = "商品タグID"
 COL_STATUS = "投稿済みフラグ"
 COL_RESULT_AT = "投稿日時(実績)"
 COL_NOTE = "結果メモ"
@@ -26,6 +27,7 @@ REQUIRED_COLUMNS = [
     COL_STONE,
     COL_INCLUSION,
     COL_BASE_URL,
+    COL_PRODUCT_TAG_ID,
     COL_STATUS,
     COL_RESULT_AT,
     COL_NOTE,
@@ -41,6 +43,7 @@ class PostRow:
     stone: str
     inclusion: str  # 内包物の鉱物名(わからない場合は空欄)
     base_url: str
+    product_tag_id: str  # Facebookコマースマネージャーの商品ID(わからない場合は空欄でタグなし)
     status: str
 
 
@@ -88,6 +91,7 @@ class SheetsClient:
                     stone=get(COL_STONE),
                     inclusion=get(COL_INCLUSION),
                     base_url=get(COL_BASE_URL),
+                    product_tag_id=get(COL_PRODUCT_TAG_ID),
                     status=status,
                 )
             )
