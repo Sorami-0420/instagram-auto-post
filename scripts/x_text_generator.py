@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import base64
+import re
+
+import anthropic
+
+from caption_generator import guess_media_type
+
+SYSTEM_PROMPT = """\
+あなたは天然石のハンドメイドピアスを制作している作家のSNS担当です。
+X(旧Twitter)に、商品写真に添える短い投稿文を書いてください。
+
+# 文体・トーン
+- やさしく丁寧で、温かみのある言葉づかい。一人称が必要なら「わたし」
+- 押しつけがましい宣伝口調にしない
+- 読点「、」は使わない
+- 句点「。」は各文の文末につける。ただし顔文字をつける文だけは句点をつけず、文の直後に顔文字を続ける
+- 絵文字(emoji)は使わない。顔文字は1箇所まで、次から選ぶ: ･*+ / ✳︎
+  「(^^)」と「･:*+.\\(( °ω° ))/.:+」は使わない
+- 「かたわら」「一粒」という言葉は使わない
+- 添付された商品写真を実際によく見て、その雰囲気に合う内容にする
+
+# 厳守事項
+- 石の効果・意味・言い伝えは書かない(断定する危険を避けるため、書かない)
+- 販売しているのは両耳用のピアス(2個で1ペア)。単品であるかのように書かない
+- 「太陽と月」はブランド全体のテーマであり、この商品のモチーフではない。
+  「太陽」「月」「三日月」などのモチーフは、商品名または写真から実際に読み取れる場合だけ書く
+- 石の名前や鉱物名は、入力された「使用石」「内包物」にあるものだけを使う。内包物が空欄なら鉱物名を創作しない
+
+# 本文(合計で全角90文字以内。この順番で2〜3文)
+1. 写真の雰囲気に合う情景や気持ちを1文
+2. 商品名と使用石の紹介を1文(例:「〇〇は△△を使ったピアスです」)
+3. (入れる場合)どんな服装や気分に合うかを、さりげなく提案する1文
+- どの行も28文字以内。文ごとに改行して、文と文の間に空白行を1行入れる
+- URLは本文に含めない(あとから自動で付ける)
+
+# ハッシュタグ
+- 1〜2個。商品名や石の名前、ハンドメイドアクセサリー関連から選ぶ
+- 「#」を付けて、半角スペースで区切る
+
+# 出力形式(厳守。これ以外の文字は出力しない)
+[本文]
+(本文)
+[ハッシュタグ]
+(ハッシュタグ)
+"""
+
+URL_WEIGHT = 23
+MAX_WEIGHT = 280
+_NARROW_RANGES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
+_URL_PATTERN = re.compile(r"https?://\S+")
+
+
+def weighted_length(text: str) -> int:
+    """Xの文字数の数え方: URLは一律23、半角の英数字などは1、日本語など全角は2として数える。"""
+    total = 0
+    cursor = 0
+    for match in _URL_PATTERN.finditer(text):
+        total += _plain_weight(text[cursor : match.start()]) + URL_WEIGHT
+        cursor = match.end()
+    return total + _plain_weight(text[cursor:])
+
+
+def _plain_weight(text: str) -> int:
+    return sum(
+        1 if any(low <= ord(ch) <= high for low, high in _NARROW_RANGES) else 2 for ch in text
+    )
+
+
+def generate_x_text(
+    client: anthropic.Anthropic,
+    *,
+    product_name: str,
+    stone: str,
+    inclusion: str,
+    base_url: str,
+    image_bytes: bytes,
+    image_filename: str,
+    model: str = "claude-sonnet-5",
+) -> str:
+    """Xに投稿する文章全体(本文 + URL + ハッシュタグ)を返す。"""
+    inclusion_line = f"内包物: {inclusion}" if inclusion else "内包物: (不明・指定なし。鉱物名を創作しないこと)"
+    user_prompt = (
+        f"商品名: {product_name}\n"
+        f"使用石: {stone}\n"
+        f"{inclusion_line}\n\n"
+        "添付した商品写真をよく見た上で、Xの投稿文を作成してください。"
+    )
+    response = client.messages.create(
+        model=model,
+        max_tokens=2000,
+        system=SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": guess_media_type(image_filename),
+                            "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
+                        },
+                    },
+                    {"type": "text", "text": user_prompt},
+                ],
+            }
+        ],
+    )
+    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    body, hashtags = _parse(text, response.stop_reason)
+    return assemble(body, base_url, hashtags)
+
+
+def _parse(text: str, stop_reason: str | None) -> tuple[str, str]:
+    body_marker, tag_marker = "[本文]", "[ハッシュタグ]"
+    if body_marker not in text or tag_marker not in text:
+        raise ValueError(f"出力の形式が想定と違いました(stop_reason={stop_reason})")
+    body, hashtags = text.split(body_marker, 1)[1].split(tag_marker, 1)
+    body, hashtags = body.strip(), hashtags.strip()
+    if not body:
+        raise ValueError(f"本文が空でした(stop_reason={stop_reason})")
+    return body, hashtags
+
+
+def assemble(body: str, url: str, hashtags: str) -> str:
+    """本文・URL・ハッシュタグを、空白行をはさんで並べ、Xの上限(280)を超えていないか確認する。"""
+    parts = [body]
+    if url:
+        parts.append(url)
+    if hashtags:
+        parts.append(hashtags)
+    text = "\n\n".join(parts)
+    weight = weighted_length(text)
+    if weight > MAX_WEIGHT:
+        raise ValueError(f"Xの文字数の上限を超えました({weight}/{MAX_WEIGHT})")
+    return text

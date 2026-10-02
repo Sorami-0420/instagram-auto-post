@@ -13,6 +13,7 @@ from config import Config, ConfigError
 from instagram_client import InstagramPostError, publish_feed_post, publish_story_video
 from sheets_client import PostRow, SheetsClient
 from story_sheets_client import RETRY_PREFIX, StoryRow, StorySheetsClient
+from x_text_generator import generate_x_text
 from youtube_text_generator import generate_youtube_text
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -210,6 +211,40 @@ def run_youtube_texts(
         print(f"[YouTube文章 行{task.row_number}] 生成しました: {title}")
 
 
+MAX_X_TEXTS_PER_RUN = 3
+
+
+def run_x_texts(sheets: SheetsClient, claude: anthropic.Anthropic) -> None:
+    """「投稿管理」シートの行から、X用の投稿文を作って「X投稿文」列に書き込む(Xへの投稿はしない)。
+
+    Instagramの投稿とは独立した補助機能なので、失敗してもシートに理由を残すだけで投稿処理には影響させない。
+    """
+    tasks = sheets.load_x_text_tasks(MAX_X_TEXTS_PER_RUN)
+    if not tasks:
+        return
+
+    print(f"[X投稿文] 生成対象: {len(tasks)}件")
+    for task in tasks:
+        try:
+            image_bytes = (POSTS_DIR / task.image_filename).read_bytes()
+            text = generate_x_text(
+                claude,
+                product_name=task.product_name,
+                stone=task.stone,
+                inclusion=task.inclusion,
+                base_url=task.base_url,
+                image_bytes=image_bytes,
+                image_filename=task.image_filename,
+            )
+        except Exception as exc:  # noqa: BLE001 - 失敗してもシートに理由を残して続ける
+            sheets.write_x_text(task.row_number, f"[エラー] 投稿文の生成に失敗しました: {exc}")
+            print(f"[X投稿文 行{task.row_number}] 生成エラー: {exc}", file=sys.stderr)
+            continue
+
+        sheets.write_x_text(task.row_number, text)
+        print(f"[X投稿文 行{task.row_number}] 生成しました")
+
+
 def run() -> int:
     config = Config.load()
     claude = anthropic.Anthropic(api_key=config.anthropic_api_key)
@@ -223,6 +258,7 @@ def run() -> int:
     feed_exit_code, feed_scheduled_at = run_feed(config, sheets, claude, now)
     story_exit_code = run_stories(config, stories, feed_scheduled_at, now)
     run_youtube_texts(stories, sheets, claude)
+    run_x_texts(sheets, claude)
 
     return feed_exit_code or story_exit_code
 

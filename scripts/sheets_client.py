@@ -43,12 +43,29 @@ REQUIRED_COLUMNS = [
 ]
 
 
+# X(旧Twitter)用の投稿文を入れる列。シートにあるときだけ機能する(なければ何もしない)
+COL_X_TEXT = "X投稿文"
+
+# X投稿文の欄がこの接頭辞で始まる行は、原因を直したあとで自動的に再生成される
+RETRY_PREFIX = "[要確認]"
+
+
 @dataclass
 class ProductInfo:
     product_name: str
     stone: str
     inclusion: str
     image_filename: str
+
+
+@dataclass
+class XTextTask:
+    row_number: int
+    product_name: str
+    stone: str
+    inclusion: str
+    image_filename: str
+    base_url: str
 
 
 @dataclass
@@ -72,6 +89,9 @@ class SheetsClient:
         self._worksheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
         self._header = self._worksheet.row_values(1)
         self._col_index = self._build_column_index()
+        self.has_x_column = COL_X_TEXT in self._header
+        if self.has_x_column:
+            self._col_index[COL_X_TEXT] = self._header.index(COL_X_TEXT) + 1
 
     def _build_column_index(self) -> dict[str, int]:
         missing = [name for name in REQUIRED_COLUMNS if name not in self._header]
@@ -80,6 +100,40 @@ class SheetsClient:
                 "スプレッドシートの1行目に必要な列が見つかりません: " + ", ".join(missing)
             )
         return {name: self._header.index(name) + 1 for name in REQUIRED_COLUMNS}
+
+    def load_x_text_tasks(self, limit: int) -> list[XTextTask]:
+        """まだInstagramに投稿していない行のうち、X投稿文が空欄(または[要確認])の行を最大limit件返す。"""
+        if not self.has_x_column:
+            return []
+
+        tasks: list[XTextTask] = []
+        for i, values in enumerate(self._worksheet.get_all_values()[1:], start=2):
+
+            def get(col: str) -> str:
+                idx = self._col_index[col] - 1
+                return values[idx].strip() if idx < len(values) else ""
+
+            x_text = get(COL_X_TEXT)
+            if get(COL_STATUS) or (x_text and not x_text.startswith(RETRY_PREFIX)):
+                continue
+            if not get(COL_PRODUCT_NAME) or not get(COL_IMAGE_FILENAME):
+                continue
+            tasks.append(
+                XTextTask(
+                    row_number=i,
+                    product_name=get(COL_PRODUCT_NAME),
+                    stone=get(COL_STONE),
+                    inclusion=get(COL_INCLUSION),
+                    image_filename=get(COL_IMAGE_FILENAME),
+                    base_url=get(COL_BASE_URL),
+                )
+            )
+            if len(tasks) >= limit:
+                break
+        return tasks
+
+    def write_x_text(self, row_number: int, text: str) -> None:
+        self._update(row_number, {COL_X_TEXT: text})
 
     @staticmethod
     def _combine_scheduled_at(get) -> str:
