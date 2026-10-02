@@ -7,6 +7,10 @@ from dataclasses import dataclass
 import gspread
 from google.oauth2.service_account import Credentials
 
+import sheets_retry
+
+sheets_retry.install()
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # スプレッドシートの1行目(ヘッダー)に必要な列名
