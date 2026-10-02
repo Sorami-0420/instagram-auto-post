@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import base64
+import sys
 
 import anthropic
 
-from caption_generator import guess_media_type
+from caption_generator import MAX_LINE_LENGTH, find_long_lines, guess_media_type, same_text
 
 SYSTEM_PROMPT = """\
 あなたは「太陽と月」をモチーフにした天然石ピアスを制作しているハンドメイド作家のSNS担当です。
@@ -49,13 +50,16 @@ YouTubeショート(縦型の短い動画)に付ける「タイトル」と「�
 4. どんな服装や気分に合うかをさりげなく提案する1文
    - 毎回同じ切り口にせず、次から商品や写真に合うものを選ぶ: 服装との相性(着物・シックな服・ナチュラルな服など) / 気分(落ち込んだ日・頑張りたい日など) / 行き先やシーン
    - 「散歩」「お出かけ」に偏らないこと
-- どの文も**40文字以内**にする。だらだらと長くしない。1文に複数の内容を詰め込まない。
-  文ごとに改行して、文と文の間に空白行を1行入れる
+- どの文も短くし、だらだらと長くしない。1文に複数の内容を詰め込まない
+- スマホの画面で1行に収まる上限は28文字。**どの行も28文字を超えてはいけない**(顔文字や句点も1文字に数える)。
+  1文が28文字を超えるときは、意味の区切れ目(助詞の後・て形の後など)で改行して分ける(単語の途中では切らない。
+  句点「。」は文の最後の行にだけつける)
+- 文と文の間には空白行を1行入れる。同じ文を分けた行どうしの間には空白行を入れない
 - 説明文の最後に、空白行をはさんでハッシュタグを3〜4個(商品名・石の名前・ハンドメイドアクセサリー関連から厳選)。
   「#Shorts」は付けない
 
 # 出力前の確認
-- 説明文の各文の文字数を数え、40文字を超える文があれば、内容を1つに絞って書き直してから出力する
+- 説明文の各行の文字数を数え、28文字を超える行があれば、意味の区切れ目で改行し直してから出力する
 
 # 出力形式(厳守。これ以外の文字は出力しない)
 [タイトル]
@@ -106,7 +110,44 @@ def generate_youtube_text(
         ],
     )
     text = "".join(block.text for block in response.content if block.type == "text").strip()
-    return _parse(text, response.stop_reason)
+    title, description = _parse(text, response.stop_reason)
+    return title, rewrap_if_needed(client, description, model)
+
+
+REWRAP_SYSTEM_PROMPT = """\
+あなたはYouTube説明文の改行だけを直す校正者です。
+渡された説明文について、文言(文字・句読点・顔文字・ハッシュタグ)は一切変えず、改行の位置だけを直してください。
+- どの行も25文字以内にする(顔文字や句点も1文字に数える)。長い文は、意味の区切れ目(助詞の後・て形の後など)で改行して分ける
+- 同じ文を分けた行どうしの間には空白行を入れない。文と文の間の空白行は、もとのまま残す
+- 単語の途中では改行しない
+- ハッシュタグの行は、そのまま変えない
+- 出力は説明文の全文のみ。説明や前置きは書かない
+"""
+
+
+def rewrap_if_needed(client: anthropic.Anthropic, description: str, model: str) -> str:
+    """28文字を超える行があれば、文言を変えずに改行だけを直す。直せなければ元のまま返す。"""
+    long_lines = find_long_lines(description, first_line_max=MAX_LINE_LENGTH)
+    if not long_lines:
+        return description
+
+    print(f"説明文に長すぎる行が{len(long_lines)}件あるため、改行を直します: {long_lines}")
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2000,
+            system=REWRAP_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": description}],
+        )
+        rewrapped = "".join(b.text for b in response.content if b.type == "text").strip()
+    except Exception as exc:  # noqa: BLE001 - 直せなくても文章づくり自体は止めない
+        print(f"改行の修正に失敗したため、元の説明文を使います: {exc}", file=sys.stderr)
+        return description
+
+    if rewrapped and same_text(description, rewrapped):
+        return rewrapped
+    print("改行の修正で文言が変わってしまったため、元の説明文を使います", file=sys.stderr)
+    return description
 
 
 def _parse(text: str, stop_reason: str | None) -> tuple[str, str]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import sys
 
 import anthropic
 
@@ -34,6 +35,10 @@ Instagramのフィード投稿用キャプションを書いてください。
 - 1文が長い場合は、意味の区切れ目(助詞の後・て形の後など、読むときに一息つける場所)で
   区切って改行する。1行は15〜25文字程度を目安にする(短い文は無理に区切らず1行のままでよい)
   この目安を超える行(1行で25文字を大きく超えるもの)を作らないこと
+- スマホの画面で1行に収まる上限は28文字。どの行も**28文字を超えてはいけない**(顔文字や句点も1文字に数える)
+- **最初の行だけは15文字以内**にする。スマホでは1行目の先頭にアカウント名が表示され、使える幅が狭くなるため。
+  最初の文が長い場合は、短い言葉で1行目を終わらせ、残りを2行目に回す
+  (例:1行目「緑の小道に」/ 2行目「光がやさしく差し込んでいました✳︎」)
 - 改行のたびに、その直後に空白行を1行入れる。これをハッシュタグの手前まで本文全体で繰り返す
 - 句点「。」は、区切った行のうち、その文の一番最後の行にだけつける(文の途中の行にはつけない)
 - 改行していい場所:助詞の後、て形の後、意味のまとまりの切れ目
@@ -169,4 +174,63 @@ def generate_caption(
         raise ValueError(
             f"生成されたキャプションが空でした(stop_reason={response.stop_reason})"
         )
+    return rewrap_if_needed(client, caption, model)
+
+
+# スマホで1行に収まる上限。1行目だけは先頭にアカウント名が付くため、さらに短くする
+MAX_LINE_LENGTH = 28
+FIRST_LINE_MAX_LENGTH = 15
+
+REWRAP_SYSTEM_PROMPT = """\
+あなたはInstagramキャプションの改行だけを直す校正者です。
+渡されたキャプションについて、文言(文字・句読点・顔文字・ハッシュタグ)は一切変えず、改行の位置だけを直してください。
+- 本文の各行は、意味の区切れ目(助詞の後・て形の後など、読むときに一息つける場所)で改行する
+- 最初の行は15文字以内、2行目以降は25文字以内にする(顔文字や句点も1文字に数える)
+- 単語の途中では改行しない
+- 改行のたびに、その直後に空白行を1行入れる(元の形式と同じ)
+- 句点「。」と顔文字は、もとの文末の位置のまま動かさない
+- ハッシュタグの行は、そのまま変えない
+- 出力はキャプション全文のみ。説明や前置きは書かない
+"""
+
+
+def find_long_lines(caption: str, *, first_line_max: int = FIRST_LINE_MAX_LENGTH) -> list[str]:
+    """本文のうち長すぎる行を返す(ハッシュタグの行は対象外)。最初の行だけ基準を変えられる。"""
+    lines = [line.strip() for line in caption.splitlines() if line.strip()]
+    long_lines = []
+    for i, line in enumerate(lines):
+        if line.startswith("#"):
+            continue
+        limit = first_line_max if i == 0 else MAX_LINE_LENGTH
+        if len(line) > limit:
+            long_lines.append(line)
+    return long_lines
+
+
+def same_text(a: str, b: str) -> bool:
+    return "".join(a.split()) == "".join(b.split())
+
+
+def rewrap_if_needed(client: anthropic.Anthropic, caption: str, model: str) -> str:
+    """長すぎる行があれば、文言を変えずに改行だけを直す。直せなければ元のまま返す。"""
+    long_lines = find_long_lines(caption)
+    if not long_lines:
+        return caption
+
+    print(f"長すぎる行が{len(long_lines)}件あるため、改行を直します: {long_lines}")
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2000,
+            system=REWRAP_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": caption}],
+        )
+        rewrapped = "".join(b.text for b in response.content if b.type == "text").strip()
+    except Exception as exc:  # noqa: BLE001 - 直せなくても投稿自体は止めない
+        print(f"改行の修正に失敗したため、元のキャプションを使います: {exc}", file=sys.stderr)
+        return caption
+
+    if rewrapped and same_text(caption, rewrapped):
+        return rewrapped
+    print("改行の修正で文言が変わってしまったため、元のキャプションを使います", file=sys.stderr)
     return caption
