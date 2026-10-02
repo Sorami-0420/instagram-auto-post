@@ -40,6 +40,14 @@ REQUIRED_COLUMNS = [
 
 
 @dataclass
+class ProductInfo:
+    product_name: str
+    stone: str
+    inclusion: str
+    image_filename: str
+
+
+@dataclass
 class PostRow:
     row_number: int  # スプレッドシート上の行番号(ヘッダーを含む実際の行)
     scheduled_at: str
@@ -136,6 +144,32 @@ class SheetsClient:
             row.row_number,
             {COL_STATUS: "エラー", COL_RESULT_AT: checked_at, COL_NOTE: error_message},
         )
+
+    def find_product_info(self, product_name: str) -> ProductInfo | None:
+        """商品名(NFC正規化して比較)が一致する行の商品情報を返す。画像ファイル名がある行を優先する。"""
+        target = unicodedata.normalize("NFC", product_name.strip())
+        matches: list[ProductInfo] = []
+
+        for values in self._worksheet.get_all_values()[1:]:
+
+            def get(col: str) -> str:
+                idx = self._col_index[col] - 1
+                return values[idx].strip() if idx < len(values) else ""
+
+            if unicodedata.normalize("NFC", get(COL_PRODUCT_NAME)) != target:
+                continue
+            matches.append(
+                ProductInfo(
+                    product_name=get(COL_PRODUCT_NAME),
+                    stone=get(COL_STONE),
+                    inclusion=get(COL_INCLUSION),
+                    image_filename=get(COL_IMAGE_FILENAME),
+                )
+            )
+
+        if not matches:
+            return None
+        return next((m for m in matches if m.image_filename), matches[0])
 
     def fill_image_filename(self, product_name: str, filename: str) -> str:
         """商品名が完全一致し、画像ファイル名が空欄の行に書き込む。

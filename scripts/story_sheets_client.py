@@ -26,6 +26,15 @@ REQUIRED_COLUMNS = [
     COL_NOTE,
 ]
 
+# YouTube用の文章生成に使う列。3つすべてがシートにあるときだけ機能する(なければ何もしない)
+COL_PRODUCT_NAME = "商品名"
+COL_YT_TITLE = "YouTubeタイトル"
+COL_YT_DESCRIPTION = "YouTube説明文"
+YOUTUBE_COLUMNS = [COL_PRODUCT_NAME, COL_YT_TITLE, COL_YT_DESCRIPTION]
+
+# YouTubeタイトル欄がこの接頭辞で始まる行は、商品名を直したあとで自動的に再生成される
+RETRY_PREFIX = "[要確認]"
+
 
 @dataclass
 class StoryRow:
@@ -33,6 +42,12 @@ class StoryRow:
     scheduled_at: str
     video_filename: str
     status: str
+
+
+@dataclass
+class YoutubeTextTask:
+    row_number: int
+    product_name: str
 
 
 class StorySheetsClient:
@@ -43,6 +58,9 @@ class StorySheetsClient:
         self._worksheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
         self._header = self._worksheet.row_values(1)
         self._col_index = self._build_column_index()
+        self.has_youtube_columns = all(name in self._header for name in YOUTUBE_COLUMNS)
+        if self.has_youtube_columns:
+            self._col_index.update({name: self._header.index(name) + 1 for name in YOUTUBE_COLUMNS})
 
     def _build_column_index(self) -> dict[str, int]:
         missing = [name for name in REQUIRED_COLUMNS if name not in self._header]
@@ -51,6 +69,35 @@ class StorySheetsClient:
                 "ストーリー用シートの1行目に必要な列が見つかりません: " + ", ".join(missing)
             )
         return {name: self._header.index(name) + 1 for name in REQUIRED_COLUMNS}
+
+    def load_youtube_text_tasks(self, limit: int) -> list[YoutubeTextTask]:
+        """商品名が入っていて、YouTubeタイトルが空欄(または[要確認])の行を最大limit件返す。"""
+        if not self.has_youtube_columns:
+            return []
+
+        all_values = self._worksheet.get_all_values()
+        tasks: list[YoutubeTextTask] = []
+
+        for i, values in enumerate(all_values[1:], start=2):
+
+            def get(col: str) -> str:
+                idx = self._col_index[col] - 1
+                return values[idx].strip() if idx < len(values) else ""
+
+            product_name = get(COL_PRODUCT_NAME)
+            title = get(COL_YT_TITLE)
+            if product_name and (not title or title.startswith(RETRY_PREFIX)):
+                tasks.append(YoutubeTextTask(row_number=i, product_name=product_name))
+                if len(tasks) >= limit:
+                    break
+        return tasks
+
+    def write_youtube_text(self, row_number: int, title: str, description: str) -> None:
+        self._update(row_number, {COL_YT_TITLE: title, COL_YT_DESCRIPTION: description})
+
+    def write_youtube_note(self, row_number: int, message: str) -> None:
+        """生成できなかった理由をタイトル欄に残す(説明文欄は空にする)。"""
+        self._update(row_number, {COL_YT_TITLE: message, COL_YT_DESCRIPTION: ""})
 
     @staticmethod
     def _combine_scheduled_at(get) -> str:

@@ -12,7 +12,8 @@ from caption_generator import generate_caption
 from config import Config, ConfigError
 from instagram_client import InstagramPostError, publish_feed_post, publish_story_video
 from sheets_client import PostRow, SheetsClient
-from story_sheets_client import StoryRow, StorySheetsClient
+from story_sheets_client import RETRY_PREFIX, StoryRow, StorySheetsClient
+from youtube_text_generator import generate_youtube_text
 
 JST = ZoneInfo("Asia/Tokyo")
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -44,9 +45,10 @@ def is_due(row: PostRow | StoryRow, now: datetime) -> bool:
     return scheduled is not None and scheduled <= now
 
 
-def run_feed(config: Config, claude: anthropic.Anthropic, now: datetime) -> tuple[int, list[str]]:
+def run_feed(
+    config: Config, sheets: SheetsClient, claude: anthropic.Anthropic, now: datetime
+) -> tuple[int, list[str]]:
     """フィード投稿を処理する。戻り値は (終了コード, 処理した行の投稿日時の一覧)。"""
-    sheets = SheetsClient(config.google_service_account_json, config.spreadsheet_id, config.sheet_name)
     processed_scheduled_at = sheets.list_all_scheduled_at()
 
     rows = sheets.load_pending_rows()
@@ -110,12 +112,10 @@ def run_feed(config: Config, claude: anthropic.Anthropic, now: datetime) -> tupl
     return exit_code, processed_scheduled_at
 
 
-def run_stories(config: Config, feed_scheduled_at: list[str], now: datetime) -> int:
+def run_stories(
+    config: Config, stories: StorySheetsClient, feed_scheduled_at: list[str], now: datetime
+) -> int:
     """ストーリー投稿を処理する。フィード投稿と同じ日に予定されている行はスキップする。"""
-    stories = StorySheetsClient(
-        config.google_service_account_json, config.spreadsheet_id, config.story_sheet_name
-    )
-
     feed_dates = {
         parsed.date() for parsed in (parse_datetime(value) for value in feed_scheduled_at) if parsed
     }
@@ -166,13 +166,63 @@ def run_stories(config: Config, feed_scheduled_at: list[str], now: datetime) -> 
     return exit_code
 
 
+MAX_YOUTUBE_TEXTS_PER_RUN = 3
+
+
+def run_youtube_texts(
+    stories: StorySheetsClient, sheets: SheetsClient, claude: anthropic.Anthropic
+) -> None:
+    """ストーリー管理シートの商品名から、YouTubeショート用のタイトル・説明文を作って書き込む。
+
+    Instagramの投稿とは独立した補助機能なので、失敗してもシートに理由を残すだけで投稿処理には影響させない。
+    """
+    tasks = stories.load_youtube_text_tasks(MAX_YOUTUBE_TEXTS_PER_RUN)
+    if not tasks:
+        return
+
+    print(f"[YouTube文章] 生成対象: {len(tasks)}件")
+    for task in tasks:
+        info = sheets.find_product_info(task.product_name)
+        if info is None:
+            stories.write_youtube_note(
+                task.row_number,
+                f"{RETRY_PREFIX} 「投稿管理」タブに同じ商品名の行が見つかりません。商品名を確認してください",
+            )
+            print(f"[YouTube文章 行{task.row_number}] 商品名が見つかりません: {task.product_name}", file=sys.stderr)
+            continue
+
+        try:
+            image_bytes = (POSTS_DIR / info.image_filename).read_bytes()
+            title, description = generate_youtube_text(
+                claude,
+                product_name=info.product_name,
+                stone=info.stone,
+                inclusion=info.inclusion,
+                image_bytes=image_bytes,
+                image_filename=info.image_filename,
+            )
+        except Exception as exc:  # noqa: BLE001 - 失敗してもシートに理由を残して続ける
+            stories.write_youtube_note(task.row_number, f"[エラー] 文章の生成に失敗しました: {exc}")
+            print(f"[YouTube文章 行{task.row_number}] 生成エラー: {exc}", file=sys.stderr)
+            continue
+
+        stories.write_youtube_text(task.row_number, title, description)
+        print(f"[YouTube文章 行{task.row_number}] 生成しました: {title}")
+
+
 def run() -> int:
     config = Config.load()
     claude = anthropic.Anthropic(api_key=config.anthropic_api_key)
     now = now_jst()
 
-    feed_exit_code, feed_scheduled_at = run_feed(config, claude, now)
-    story_exit_code = run_stories(config, feed_scheduled_at, now)
+    sheets = SheetsClient(config.google_service_account_json, config.spreadsheet_id, config.sheet_name)
+    stories = StorySheetsClient(
+        config.google_service_account_json, config.spreadsheet_id, config.story_sheet_name
+    )
+
+    feed_exit_code, feed_scheduled_at = run_feed(config, sheets, claude, now)
+    story_exit_code = run_stories(config, stories, feed_scheduled_at, now)
+    run_youtube_texts(stories, sheets, claude)
 
     return feed_exit_code or story_exit_code
 
