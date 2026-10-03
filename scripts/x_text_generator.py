@@ -5,7 +5,7 @@ import re
 
 import anthropic
 
-from caption_generator import guess_media_type
+from caption_generator import ensure_sentence_periods, guess_media_type
 
 SYSTEM_PROMPT = """\
 あなたは天然石のハンドメイドピアスを制作している作家のSNS担当です。
@@ -143,7 +143,7 @@ def generate_x_text(
     )
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     body, hashtags = _parse(text, response.stop_reason)
-    return assemble(body, base_url, hashtags)
+    return assemble(ensure_sentence_periods(body), base_url, hashtags)
 
 
 def _parse(text: str, stop_reason: str | None) -> tuple[str, str]:

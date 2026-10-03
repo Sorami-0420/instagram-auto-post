@@ -5,7 +5,13 @@ import sys
 
 import anthropic
 
-from caption_generator import MAX_LINE_LENGTH, find_long_lines, guess_media_type, same_text
+from caption_generator import (
+    MAX_LINE_LENGTH,
+    ensure_sentence_periods,
+    find_long_lines,
+    guess_media_type,
+    same_text,
+)
 
 SYSTEM_PROMPT = """\
 あなたは「太陽と月」をモチーフにした天然石ピアスを制作しているハンドメイド作家のSNS担当です。
@@ -136,7 +142,7 @@ def generate_youtube_text(
     )
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     title, description = _parse(text, response.stop_reason)
-    return title, rewrap_if_needed(client, description, model)
+    return title, ensure_sentence_periods(rewrap_if_needed(client, description, model))
 
 
 REWRAP_SYSTEM_PROMPT = """\

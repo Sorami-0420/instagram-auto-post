@@ -237,6 +237,34 @@ def same_text(a: str, b: str) -> bool:
     return "".join(a.split()) == "".join(b.split())
 
 
+_SENTENCE_END_CHARS = "。！？!?+*✳\ufe0e\ufe0f"
+
+
+def ensure_sentence_periods(text: str) -> str:
+    """文末の句点「。」が抜けている文に、句点だけを付け足す(文言は変えない)。
+
+    空白行で区切られたまとまりを1文とみなす。ハッシュタグ・URLの行、顔文字で終わる文は対象外。
+    同じ文を複数行に分けているときは、そのまとまりの最後の行に付ける。
+    """
+    paragraphs = text.split("\n\n")
+    fixed = []
+    for paragraph in paragraphs:
+        lines = paragraph.split("\n")
+        # ハッシュタグ・URLの行より前だけが文の本体
+        body_count = 0
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith("http"):
+                break
+            body_count += 1
+        if body_count:
+            last = lines[body_count - 1].rstrip()
+            if last and last[-1] not in _SENTENCE_END_CHARS:
+                lines[body_count - 1] = last + "。"
+        fixed.append("\n".join(lines))
+    return "\n\n".join(fixed)
+
+
 def rewrap_if_needed(client: anthropic.Anthropic, caption: str, model: str) -> str:
     """長すぎる行があれば、文言を変えずに改行だけを直す。直せなければ元のまま返す。"""
     long_lines = find_long_lines(caption)
