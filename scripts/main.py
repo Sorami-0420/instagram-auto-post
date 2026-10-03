@@ -76,6 +76,7 @@ def run_feed(
                 product_name=row.product_name,
                 stone=row.stone,
                 inclusion=row.inclusion,
+                location=row.location,
                 base_url=row.base_url,
                 image_bytes=image_bytes,
                 image_filename=row.image_filename,
@@ -199,6 +200,7 @@ def run_youtube_texts(
                 product_name=info.product_name,
                 stone=info.stone,
                 inclusion=info.inclusion,
+                location=info.location,
                 image_bytes=image_bytes,
                 image_filename=info.image_filename,
             )
@@ -232,6 +234,7 @@ def run_x_texts(sheets: SheetsClient, claude: anthropic.Anthropic) -> None:
                 product_name=task.product_name,
                 stone=task.stone,
                 inclusion=task.inclusion,
+                location=task.location,
                 base_url=task.base_url,
                 image_bytes=image_bytes,
                 image_filename=task.image_filename,

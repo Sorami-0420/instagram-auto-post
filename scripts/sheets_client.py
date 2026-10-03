@@ -46,6 +46,9 @@ REQUIRED_COLUMNS = [
 # X(旧Twitter)用の投稿文を入れる列。シートにあるときだけ機能する(なければ何もしない)
 COL_X_TEXT = "X投稿文"
 
+# 写真を撮った場所を書く列(任意)。AIが写真から場所を勝手に決めつけないために使う
+COL_LOCATION = "撮影場所"
+
 # X投稿文の欄がこの接頭辞で始まる行は、原因を直したあとで自動的に再生成される
 RETRY_PREFIX = "[要確認]"
 
@@ -56,6 +59,7 @@ class ProductInfo:
     stone: str
     inclusion: str
     image_filename: str
+    location: str = ""
 
 
 @dataclass
@@ -66,6 +70,7 @@ class XTextTask:
     inclusion: str
     image_filename: str
     base_url: str
+    location: str = ""
 
 
 @dataclass
@@ -79,6 +84,7 @@ class PostRow:
     base_url: str
     product_tag_id: str  # Facebookコマースマネージャーの商品ID(わからない場合は空欄でタグなし)
     status: str
+    location: str = ""  # 撮影場所(空欄なら場所の名前は書かない)
 
 
 class SheetsClient:
@@ -90,8 +96,9 @@ class SheetsClient:
         self._header = self._worksheet.row_values(1)
         self._col_index = self._build_column_index()
         self.has_x_column = COL_X_TEXT in self._header
-        if self.has_x_column:
-            self._col_index[COL_X_TEXT] = self._header.index(COL_X_TEXT) + 1
+        for optional in (COL_X_TEXT, COL_LOCATION):
+            if optional in self._header:
+                self._col_index[optional] = self._header.index(optional) + 1
 
     def _build_column_index(self) -> dict[str, int]:
         missing = [name for name in REQUIRED_COLUMNS if name not in self._header]
@@ -126,6 +133,7 @@ class SheetsClient:
                     inclusion=get(COL_INCLUSION),
                     image_filename=get(COL_IMAGE_FILENAME),
                     base_url=get(COL_BASE_URL),
+                    location=get(COL_LOCATION) if COL_LOCATION in self._col_index else "",
                 )
             )
             if len(tasks) >= limit:
@@ -187,6 +195,7 @@ class SheetsClient:
                     base_url=get(COL_BASE_URL),
                     product_tag_id=get(COL_PRODUCT_TAG_ID),
                     status=status,
+                    location=get(COL_LOCATION) if COL_LOCATION in self._col_index else "",
                 )
             )
         return rows
@@ -222,6 +231,7 @@ class SheetsClient:
                     stone=get(COL_STONE),
                     inclusion=get(COL_INCLUSION),
                     image_filename=get(COL_IMAGE_FILENAME),
+                    location=get(COL_LOCATION) if COL_LOCATION in self._col_index else "",
                 )
             )
 
