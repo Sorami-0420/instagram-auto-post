@@ -7,6 +7,8 @@ import anthropic
 
 from caption_generator import (
     MAX_LINE_LENGTH,
+    MAX_HASHTAGS,
+    ensure_brand_hashtag,
     ensure_sentence_periods,
     find_long_lines,
     guess_media_type,
@@ -79,7 +81,7 @@ YouTubeショート(縦型の短い動画)に付ける「タイトル」と「�
   1文が28文字を超えるときは、意味の区切れ目(助詞の後・て形の後など)で改行して分ける(単語の途中では切らない。
   句点「。」は文の最後の行にだけつける)
 - 文と文の間には空白行を1行入れる。同じ文を分けた行どうしの間には空白行を入れない
-- 説明文の最後に、空白行をはさんでハッシュタグを3〜4個(商品名・石の名前・ハンドメイドアクセサリー関連から厳選)。
+- 説明文の最後に、空白行をはさんでハッシュタグを3〜4個。**1個目は必ず「#耳とピアス図鑑」**にし、残りを商品名・石の名前・ハンドメイドアクセサリー関連から厳選する。
   「#Shorts」は付けない
 
 # 出力前の確認
@@ -142,7 +144,8 @@ def generate_youtube_text(
     )
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     title, description = _parse(text, response.stop_reason)
-    return title, ensure_sentence_periods(rewrap_if_needed(client, description, model))
+    description = ensure_sentence_periods(rewrap_if_needed(client, description, model))
+    return title, ensure_brand_hashtag(description, MAX_HASHTAGS)
 
 
 REWRAP_SYSTEM_PROMPT = """\

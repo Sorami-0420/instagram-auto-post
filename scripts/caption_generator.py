@@ -111,7 +111,7 @@ Instagramのフィード投稿用キャプションを書いてください。
    - 気分(例:「気分が落ち込んだ日にそっと寄り添ってくれそうです」)
    押しつけがましくならないよう、さりげない提案の形にする
 4. 「プロフィールのリンクから詳細をご覧いただけます」という趣旨の一文
-5. 最後に関連ハッシュタグを**4個まで**(商品名・石の名前・ハンドメイドアクセサリー関連から厳選する)
+5. 最後に関連ハッシュタグを**4個まで**。**1個目は必ず「#耳とピアス図鑑」**にし、残り(最大3個)を商品名・石の名前・ハンドメイドアクセサリー関連から厳選する
 
 # 分量(厳守)
 - ハッシュタグを除いた本文は、上記の**合計4文だけ**で構成する。5文以上にしない
@@ -200,7 +200,7 @@ def generate_caption(
         raise ValueError(
             f"生成されたキャプションが空でした(stop_reason={response.stop_reason})"
         )
-    return rewrap_if_needed(client, caption, model)
+    return ensure_brand_hashtag(rewrap_if_needed(client, caption, model), MAX_HASHTAGS)
 
 
 # スマホで1行に収まる上限。1行目だけは先頭にアカウント名が付くため、さらに短くする
@@ -235,6 +235,23 @@ def find_long_lines(caption: str, *, first_line_max: int = FIRST_LINE_MAX_LENGTH
 
 def same_text(a: str, b: str) -> bool:
     return "".join(a.split()) == "".join(b.split())
+
+
+BRAND_HASHTAG = "#耳とピアス図鑑"
+MAX_HASHTAGS = 4
+
+
+def ensure_brand_hashtag(text: str, max_tags: int) -> str:
+    """ハッシュタグの中に「#耳とピアス図鑑」がなければ入れる。個数が上限を超えるときは、最後のタグを外す。"""
+    lines = text.split("\n")
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip().startswith("#"):
+            tags = lines[i].split()
+            if BRAND_HASHTAG in tags:
+                return text
+            lines[i] = " ".join(tags[: max_tags - 1] + [BRAND_HASHTAG])
+            return "\n".join(lines)
+    return text.rstrip() + "\n\n" + BRAND_HASHTAG
 
 
 _SENTENCE_END_CHARS = "。！？!?+*✳\ufe0e\ufe0f"
