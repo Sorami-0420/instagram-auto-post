@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
+import unicodedata
 
 import anthropic
 
@@ -38,6 +39,7 @@ X(旧Twitter)に、商品写真に添える短い投稿文を書いてくださ�
 - 「太陽と月」はブランド全体のテーマであり、この商品のモチーフではない。
   「太陽」「月」「三日月」などのモチーフは、商品名または写真から実際に読み取れる場合だけ書く
 - 石の名前や鉱物名は、**本文には書かず、ハッシュタグにだけ使う**。使うのは、入力された「使用石」「内包物」にあるものだけ。内包物が空欄なら鉱物名を創作しない
+  (ただし**商品名は例外**。商品名に石の名前が入っていても、商品名は一字も変えず、省かずに、そのまま本文に入れる)
 
 # 本文(合計で全角90文字以内。この順番で2〜3文)
 1. 1文目は、「フォロワーさんの耳と〇〇へ行ってきました」という旅の記録の形にする
@@ -50,7 +52,7 @@ X(旧Twitter)に、商品写真に添える短い投稿文を書いてくださ�
      「フォロワーさんの耳と△△の中でひと休みしてきました」の形で書く(△△は写っているもの)
    - 毎回「行ってきました」で終えず、「お散歩してきました」「ひと休みしてきました」などの言い方を変える
    - 写真の雰囲気(光・緑・色)が伝わる言葉を、1文目の中に添えてよい
-2. 商品名と、写真に写っているデザインやモチーフの紹介を1文(例:「〇〇は△△が揺れるピアスです」。△△は写真から読み取れる形や特徴。石の名前は書かない)
+2. 商品名(**入力された商品名を、一字も変えず、省かずに、そのまま書く**。「このピアス」などに言い換えない)と、写真に写っているデザインやモチーフの紹介を1文(例:「〇〇は△△が揺れるピアスです」。△△は写真から読み取れる形や特徴。石の名前は書かない)
    - △△は、写真ではっきり見分けられる形・色・質感だけを書く。羽根・三日月・太陽・葉・しずくなどの具体的な形は、
      写真で確実に見分けられるときか、商品名に書かれているときだけ使う
    - 素材の名前(銀・金・真鍮・ステンレスなど)は書かない。見た目だけでは素材を判断できないからである。
@@ -78,6 +80,7 @@ X(旧Twitter)に、商品写真に添える短い投稿文を書いてくださ�
 (ハッシュタグ)
 """
 
+MAX_ATTEMPTS = 3
 URL_WEIGHT = 23
 MAX_WEIGHT = 280
 _NARROW_RANGES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
@@ -126,30 +129,36 @@ def generate_x_text(
         f"{location_line}\n\n"
         "添付した商品写真をよく見た上で、Xの投稿文を作成してください。"
     )
-    response = client.messages.create(
-        model=model,
-        max_tokens=8000,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": guess_media_type(image_filename),
-                            "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
+    name = unicodedata.normalize("NFC", product_name)
+    for attempt in range(MAX_ATTEMPTS):
+        response = client.messages.create(
+            model=model,
+            max_tokens=8000,
+            system=SYSTEM_PROMPT,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": guess_media_type(image_filename),
+                                "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
+                            },
                         },
-                    },
-                    {"type": "text", "text": user_prompt},
-                ],
-            }
-        ],
-    )
-    text = "".join(block.text for block in response.content if block.type == "text").strip()
-    body, hashtags = _parse(text, response.stop_reason)
-    return assemble(ensure_sentence_periods(body), base_url, hashtags)
+                        {"type": "text", "text": user_prompt},
+                    ],
+                }
+            ],
+        )
+        text = "".join(block.text for block in response.content if block.type == "text").strip()
+        body, hashtags = _parse(text, response.stop_reason)
+        # 商品名が本文に入っていることを機械的に確認する(AIが言い換えて省くことがあるため)
+        if name in unicodedata.normalize("NFC", body):
+            return assemble(ensure_sentence_periods(body), base_url, hashtags)
+        print(f"商品名が本文に入っていないため、作り直します(試行{attempt + 1}/{MAX_ATTEMPTS})")
+    raise ValueError(f"商品名「{product_name}」が本文に入りませんでした")
 
 
 def _parse(text: str, stop_reason: str | None) -> tuple[str, str]:
