@@ -2,10 +2,12 @@ name: Instagram Auto Post
 
 on:
   schedule:
-    - cron: "0 1 * * *"  # 毎日 10:00 JST
-    - cron: "0 4 * * *"  # 毎日 13:00 JST
-    - cron: "0 9 * * *"  # 毎日 18:00 JST
-    - cron: "0 11 * * *" # 毎日 20:00 JST
+    # GitHubは毎時0分が混雑して遅れる・捨てられることがあるため、0分を避けてずらしている
+    - cron: "7 22 * * *"  # 毎日 07:07 JST(ストーリーズ朝用)
+    - cron: "37 22 * * *" # 毎日 07:37 JST(予備)
+    - cron: "7 3 * * *"   # 毎日 12:07 JST(昼の予備・文章づくり)
+    - cron: "7 11 * * *"  # 毎日 20:07 JST(夜の投稿)
+    - cron: "37 11 * * *" # 毎日 20:37 JST(予備)
   workflow_dispatch:
     inputs:
       test_mode:
