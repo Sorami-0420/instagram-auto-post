@@ -5,6 +5,7 @@
 @docs/shop-info.md
 @docs/claude-lessons.md
 @docs/private/ids.md
+@docs/private/production-plan.md
 
 ## 落とし穴
 - `docs/private/ids.md` は公開リポジトリに含まれず、このMacにだけある。ファイルが無いときは、IDを推測せずそらみさんに聞く(IDを間違えると別のアカウント・商品に投稿してしまうため)
