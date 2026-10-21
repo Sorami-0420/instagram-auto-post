@@ -41,17 +41,16 @@ Instagramのフィード投稿用キャプションを書いてください。
 - **最初の行だけは15文字以内**にする。スマホでは1行目の先頭にアカウント名が表示され、使える幅が狭くなるため。
   最初の文が長い場合は、短い言葉で1行目を終わらせ、残りを2行目に回す
   (例:1行目「緑の小道に」/ 2行目「光がやさしく差し込んでいました✳︎」)
-- 改行のたびに、その直後に空白行を1行入れる。これをハッシュタグの手前まで本文全体で繰り返す
+- 空白行は、**文と文の間にだけ**入れる(文が終わるたびに空白行を1行)。
+  同じ文を分けた行どうしの間には、空白行を入れない(1つの文は、空白行なしで続けて書く)
 - 句点「。」は、区切った行のうち、その文の一番最後の行にだけつける(文の途中の行にはつけない)
 - 改行していい場所:助詞の後、て形の後、意味のまとまりの切れ目
 - 改行してはいけない場所:単語の途中
-- 例(1つの文「水路を流れる水面に光が弾けて小さな粒がいくつも輝いていました」を改行する場合):
+- 例(2つの文を書く場合。1つ目の文は、2行に区切る):
   水路を流れる水面に光が弾けて
-
   小さな粒がいくつも輝いていました。
 
   そんな煌めきをそのまま石の中に閉じ込めたような
-
   その石に出会いました✳︎
 
 # アカウントのコンセプト
@@ -138,7 +137,7 @@ def guess_media_type(filename: str) -> str:
     raise ValueError(f"対応していない画像形式です: {filename}")
 
 
-def generate_caption(
+def _generate_raw(
     client: anthropic.Anthropic,
     *,
     product_name: str,
@@ -200,7 +199,54 @@ def generate_caption(
         raise ValueError(
             f"生成されたキャプションが空でした(stop_reason={response.stop_reason})"
         )
-    return ensure_brand_hashtag(rewrap_if_needed(client, caption, model), MAX_HASHTAGS)
+    return caption
+
+
+CONCEPT_OPENING = "フォロワーさんの耳と"
+MAX_ATTEMPTS = 3
+
+
+def generate_caption(
+    client: anthropic.Anthropic,
+    *,
+    product_name: str,
+    stone: str,
+    inclusion: str = "",
+    location: str = "",
+    base_url: str,
+    image_bytes: bytes,
+    image_filename: str,
+    model: str = "claude-sonnet-5",
+) -> str:
+    """キャプションを作り、機械的に整える。1文目が「フォロワーさんの耳と」で始まらなければ、作り直す。"""
+    for attempt in range(MAX_ATTEMPTS):
+        raw = _generate_raw(
+            client,
+            product_name=product_name,
+            stone=stone,
+            inclusion=inclusion,
+            location=location,
+            base_url=base_url,
+            image_bytes=image_bytes,
+            image_filename=image_filename,
+            model=model,
+        )
+        caption = join_wrapped_lines(raw)
+        caption = join_wrapped_lines(rewrap_if_needed(client, caption, model))
+        caption = ensure_sentence_periods(caption)
+        caption = ensure_brand_hashtag(caption, MAX_HASHTAGS)
+        if starts_with_concept(caption):
+            return caption
+        print(f"1文目が「{CONCEPT_OPENING}」で始まっていないため、作り直します(試行{attempt + 1}/{MAX_ATTEMPTS})")
+    raise ValueError(f"1文目が「{CONCEPT_OPENING}」で始まるキャプションを作れませんでした")
+
+
+def starts_with_concept(caption: str) -> bool:
+    """最初の行が「フォロワーさんの耳と」で始まっているか。"""
+    for line in caption.splitlines():
+        if line.strip():
+            return line.strip().startswith(CONCEPT_OPENING)
+    return False
 
 
 # スマホで1行に収まる上限。1行目だけは先頭にアカウント名が付くため、さらに短くする
@@ -213,7 +259,7 @@ REWRAP_SYSTEM_PROMPT = """\
 - 本文の各行は、意味の区切れ目(助詞の後・て形の後など、読むときに一息つける場所)で改行する
 - 最初の行は15文字以内、2行目以降は25文字以内にする(顔文字や句点も1文字に数える)
 - 単語の途中では改行しない
-- 改行のたびに、その直後に空白行を1行入れる(元の形式と同じ)
+- 空白行は文と文の間にだけ入れる。同じ文を分けた行どうしの間には、空白行を入れない
 - 句点「。」と顔文字は、もとの文末の位置のまま動かさない
 - ハッシュタグの行は、そのまま変えない
 - 出力はキャプション全文のみ。説明や前置きは書かない
@@ -242,16 +288,42 @@ MAX_HASHTAGS = 4
 
 
 def ensure_brand_hashtag(text: str, max_tags: int) -> str:
-    """ハッシュタグの中に「#耳とピアス図鑑」がなければ入れる。個数が上限を超えるときは、最後のタグを外す。"""
+    """ハッシュタグの中に「#耳とピアス図鑑」がなければ入れる(どの行に書かれていても、1つあれば足さない)。
+
+    入れるときに個数が上限を超えるなら、最後の行のタグを外す。
+    """
     lines = text.split("\n")
+    if any(BRAND_HASHTAG in line.split() for line in lines if line.strip().startswith("#")):
+        return text
     for i in range(len(lines) - 1, -1, -1):
         if lines[i].strip().startswith("#"):
             tags = lines[i].split()
-            if BRAND_HASHTAG in tags:
-                return text
             lines[i] = " ".join(tags[: max_tags - 1] + [BRAND_HASHTAG])
             return "\n".join(lines)
     return text.rstrip() + "\n\n" + BRAND_HASHTAG
+
+
+def join_wrapped_lines(text: str) -> str:
+    """文の途中で空白行が入っているとき、その空白行を消して、1つの文として続ける。
+
+    前の行が文の終わり(。！？ や顔文字)で終わっていないときだけ、次の行とつなげる。
+    ハッシュタグ・URLの行は対象外。
+    """
+    blocks = text.split("\n\n")
+    merged: list[str] = []
+    for block in blocks:
+        if not block.strip():
+            continue
+        first = block.strip().splitlines()[0].strip()
+        if merged:
+            prev_last = merged[-1].rstrip().splitlines()[-1].strip()
+            prev_is_tag = prev_last.startswith("#") or prev_last.startswith("http")
+            this_is_tag = first.startswith("#") or first.startswith("http")
+            if prev_last and not prev_is_tag and not this_is_tag and prev_last[-1] not in _SENTENCE_END_CHARS:
+                merged[-1] = merged[-1].rstrip() + "\n" + block.strip()
+                continue
+        merged.append(block.strip("\n"))
+    return "\n\n".join(merged)
 
 
 _SENTENCE_END_CHARS = "。！？!?+*✳\ufe0e\ufe0f"
