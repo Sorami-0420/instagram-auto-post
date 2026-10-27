@@ -30,8 +30,16 @@ case "$NEW_NAME" in
     ;;
 esac
 
+# Instagramはjpegしか受け付けないため、名前は .jpg にそろえ、中身がjpegでなければ変換する
+case "$NEW_NAME" in
+  *.png|*.PNG|*.jpeg|*.JPEG|*.JPG) NEW_NAME="${NEW_NAME%.*}.jpg" ;;
+esac
 DEST="posts/$NEW_NAME"
 cp "$SRC_FILE" "$DEST"
+if ! file -b "$DEST" | grep -q "JPEG"; then
+  echo "写真をjpegに変換します..."
+  sips -s format jpeg "$DEST" --out "$DEST" >/dev/null
+fi
 
 git add "$DEST"
 git commit -m "画像を追加: $NEW_NAME"

@@ -147,7 +147,7 @@ def generate_x_text(
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": guess_media_type(image_filename),
+                                "media_type": guess_media_type(image_filename, image_bytes),
                                 "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
                             },
                         },

@@ -134,11 +134,39 @@ EXTENSION_TO_MEDIA_TYPE = {
 }
 
 
-def guess_media_type(filename: str) -> str:
+def guess_media_type(filename: str, data: bytes | None = None) -> str:
+    """画像の種類を返す。中身(先頭のバイト)が分かるときは、拡張子より中身を優先する。
+
+    拡張子が .jpg でも、中身がPNGのことがある(Claude APIは、種類が食い違うとエラーにする)。
+    """
+    if data:
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if data.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if data.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp"
     for ext, media_type in EXTENSION_TO_MEDIA_TYPE.items():
         if filename.lower().endswith(ext):
             return media_type
     raise ValueError(f"対応していない画像形式です: {filename}")
+
+
+def final_text(content) -> str:
+    """最後の検索(ツール)のあとに続く文章だけを返す。
+
+    Web検索のとき、AIが検索の前に「〇〇について調べます」のような前置きの文を出すことがある。
+    それが本文の先頭に混ざらないよう、最後のツール結果より後の、連続した文章だけを使う。
+    """
+    tail: list[str] = []
+    for block in content:
+        if block.type == "text":
+            tail.append(block.text)
+        else:
+            tail = []
+    return "".join(tail).strip()
 
 
 def _generate_raw(
@@ -187,7 +215,7 @@ def _generate_raw(
                         "type": "image",
                         "source": {
                             "type": "base64",
-                            "media_type": guess_media_type(image_filename),
+                            "media_type": guess_media_type(image_filename, image_bytes),
                             "data": image_b64,
                         },
                     },
@@ -196,9 +224,7 @@ def _generate_raw(
             }
         ],
     )
-    caption = "".join(
-        block.text for block in response.content if block.type == "text"
-    ).strip()
+    caption = final_text(response.content)
     if not caption:
         raise ValueError(
             f"生成されたキャプションが空でした(stop_reason={response.stop_reason})"
@@ -241,8 +267,11 @@ def generate_caption(
         caption = ensure_brand_hashtag(caption, MAX_HASHTAGS)
         if starts_with_concept(caption):
             return caption
-        print(f"1文目が「{CONCEPT_OPENING}」で始まっていないため、作り直します(試行{attempt + 1}/{MAX_ATTEMPTS})")
-    raise ValueError(f"1文目が「{CONCEPT_OPENING}」で始まるキャプションを作れませんでした")
+        first_line = next((ln.strip() for ln in caption.splitlines() if ln.strip()), "")
+        print(f"1文目が「{CONCEPT_OPENING}」で始まっていないため、作り直します(試行{attempt + 1}/{MAX_ATTEMPTS}): 最初の行={first_line[:30]}")
+    raise ValueError(
+        f"1文目が「{CONCEPT_OPENING}」で始まるキャプションを作れませんでした(最後の最初の行: {first_line[:30]})"
+    )
 
 
 def starts_with_concept(caption: str) -> bool:
