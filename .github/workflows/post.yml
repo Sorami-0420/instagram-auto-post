@@ -8,6 +8,8 @@ on:
     - cron: "7 3 * * *"   # 毎日 12:07 JST(昼の予備・文章づくり)
     - cron: "7 11 * * *"  # 毎日 20:07 JST(夜の投稿)
     - cron: "37 11 * * *" # 毎日 20:37 JST(予備)
+    - cron: "22 12 * * *" # 毎日 21:22 JST(夜の遅れ対策の予備)
+    - cron: "7 13 * * *"  # 毎日 22:07 JST(夜の遅れ対策の予備)
   workflow_dispatch:
     inputs:
       test_mode:
@@ -18,6 +20,11 @@ on:
         options:
           - "true"
           - "false"
+
+# 実行が重なると、同じ行を二重に投稿するおそれがあるため、1つずつ順番に実行する
+concurrency:
+  group: instagram-auto-post
+  cancel-in-progress: false
 
 jobs:
   post:
