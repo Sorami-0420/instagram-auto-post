@@ -17,18 +17,19 @@ NEW_NAME=$(osascript -e 'text returned of (display dialog "保存するファイ
   exit 0
 }
 
+# 前後の空白は取る(先頭に空白が入ると、自動投稿が写真を見つけられなくなるため)
+NEW_NAME=$(printf '%s' "$NEW_NAME" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
 if [ -z "$NEW_NAME" ]; then
   osascript -e 'display alert "ファイル名が空でした。もう一度実行してください。"'
   exit 1
 fi
 
-case "$NEW_NAME" in
-  *.jpg|*.jpeg|*.png|*.JPG|*.JPEG|*.PNG) ;;
-  *)
-    osascript -e "display alert \"ファイル名の形式が正しくありません: $NEW_NAME\n.jpg か .png で終わる半角英数字の名前にしてください。もう一度実行してください。\""
-    exit 1
-    ;;
-esac
+# 半角英数字・ハイフン・アンダースコア・ピリオドだけ。空白や日本語が入っていたら止める
+if ! printf '%s' "$NEW_NAME" | grep -Eq '^[A-Za-z0-9_.-]+\.(jpg|jpeg|png|JPG|JPEG|PNG)$'; then
+  osascript -e "display alert \"ファイル名の形式が正しくありません: $NEW_NAME\n半角英数字だけで、.jpg か .png で終わる名前にしてください(空白や日本語は使えません)。もう一度実行してください。\""
+  exit 1
+fi
 
 # Instagramはjpegしか受け付けないため、名前は .jpg にそろえ、中身がjpegでなければ変換する
 case "$NEW_NAME" in
